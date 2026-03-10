@@ -46,4 +46,50 @@ public class InMemoryVectorStore
         float denom = MathF.Sqrt(normA) * MathF.Sqrt(normB);
         return denom == 0f ? 0f : dot / denom;
     }
+
+    // 1. Dot Product (Inner Product) – muito usado e mais rápido
+    private static float DotProduct(float[] a, float[] b)
+    {
+        float dot = 0f;
+        int len = Math.Min(a.Length, b.Length);
+        for (int i = 0; i < len; i++)
+            dot += a[i] * b[i];
+        return dot;
+    }
+
+    // 2. Euclidean Distance (L2) – quanto menor, mais similar
+    private static float EuclideanDistance(float[] a, float[] b)
+    {
+        float sum = 0f;
+        int len = Math.Min(a.Length, b.Length);
+        for (int i = 0; i < len; i++)
+        {
+            float diff = a[i] - b[i];
+            sum += diff * diff;
+        }
+        return MathF.Sqrt(sum);
+    }
+
+    // 3. Squared Euclidean – evita a raiz quadrada (mais rápido para comparação/ranking)
+    private static float SquaredEuclidean(float[] a, float[] b)
+    {
+        float sum = 0f;
+        int len = Math.Min(a.Length, b.Length);
+        for (int i = 0; i < len; i++)
+        {
+            float diff = a[i] - b[i];
+            sum += diff * diff;
+        }
+        return sum;
+    }
+
+    // 4. Manhattan (L1) – soma das diferenças absolutas
+    private static float ManhattanDistance(float[] a, float[] b)
+    {
+        float sum = 0f;
+        int len = Math.Min(a.Length, b.Length);
+        for (int i = 0; i < len; i++)
+            sum += MathF.Abs(a[i] - b[i]);
+        return sum;
+    }
 }
