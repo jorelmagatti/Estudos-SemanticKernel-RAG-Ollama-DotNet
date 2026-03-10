@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="FarmaceuticAgentRagSemantickernel/FarmaceuticAgentRagSemantickernel.csproj" />
+  <Project Path="FutbolRulesRAGSemanticKernel/FutbolRulesRAGSemanticKernel.csproj" />
+  <Project Path="RaglangChainTestes/FutbolRulesRAG.csproj" />
+  <Project Path="RhAgentRagSemanticKernel/RhAgentRagSemanticKernel.csproj" Id="352f7289-8966-499f-a7b9-258b6da604c0" />
+</Solution>
