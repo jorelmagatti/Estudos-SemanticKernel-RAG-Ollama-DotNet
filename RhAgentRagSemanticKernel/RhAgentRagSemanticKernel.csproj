@@ -11,6 +11,9 @@
     <PackageReference Include="Microsoft.SemanticKernel.Connectors.Chroma" Version="1.73.0-alpha" />
     <PackageReference Include="Microsoft.SemanticKernel.Connectors.InMemory" Version="1.73.0-preview" />
     <PackageReference Include="Microsoft.SemanticKernel.Connectors.Ollama" Version="1.73.0-alpha" />
+    <PackageReference Include="PdfPig" Version="0.1.13" />
+    <PackageReference Include="Polly" Version="8.6.6" />
+    <PackageReference Include="Polly.Core" Version="8.6.6" />
   </ItemGroup>
 
 </Project>
