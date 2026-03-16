@@ -1,4 +1,5 @@
 ﻿using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Connectors.Ollama;
 using System.Text.RegularExpressions;
 
 namespace AgentUtilRagReActSemantickernel;
@@ -82,6 +83,11 @@ public class ReActAgent(IChatCompletionService chatService, int maxIteracoes = 5
     /// </summary>
     public async Task<string> ExecutarAsync(string pergunta)
     {
+        var settings = new OllamaPromptExecutionSettings
+        {
+            Temperature = 0.0f,
+        };
+
         // Monta o ChatHistory com o system prompt
         // Equivalente a: chat = model.start_chat(history=[]) + chat.send_message(PROMPT_REACT)
         var historico = new ChatHistory();
@@ -100,7 +106,7 @@ public class ReActAgent(IChatCompletionService chatService, int maxIteracoes = 5
             Console.ResetColor();
 
             // Envia ao LLM e obtém resposta
-            var resposta = await chatService.GetChatMessageContentAsync(historico);
+            var resposta = await chatService.GetChatMessageContentAsync(historico, settings);
             var textoResposta = resposta.Content?.Trim() ?? string.Empty;
 
             Console.WriteLine($"Modelo pensou/respondeu:\n{textoResposta}\n");
