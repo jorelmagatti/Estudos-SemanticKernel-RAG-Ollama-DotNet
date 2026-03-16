@@ -1,7 +1,7 @@
 <Solution>
   <Project Path="AgentUtilRagReActSemantickernel/AuxiliadorEstoqueRagReActSemantickernel.csproj" Id="2f30543d-492c-4c8f-a453-80f13e62faf6" />
   <Project Path="FarmaceuticAgentRagSemantickernel/FarmaceuticAgentRagSemantickernel.csproj" />
+  <Project Path="FutbolRulesRAG/FutbolRulesRAG.csproj" />
   <Project Path="FutbolRulesRAGSemanticKernel/FutbolRulesRAGSemanticKernel.csproj" />
-  <Project Path="RaglangChainTestes/FutbolRulesRAG.csproj" />
   <Project Path="RhAgentRagSemanticKernel/RhAgentRagSemanticKernel.csproj" Id="352f7289-8966-499f-a7b9-258b6da604c0" />
 </Solution>
