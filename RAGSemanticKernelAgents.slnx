@@ -1,8 +1,9 @@
 <Solution>
+  <Project Path="AgenteConsultaRagBuscaAgentica/AgenteConsultaRagBuscaAgentica.csproj" Id="2af43314-8e6b-4bc8-ba03-582722e08a2e" />
   <Project Path="AgenteUtilidadesRagReActGrafo/AgenteUtilidadesRagReActGrafo.csproj" Id="4c9a08c3-cf58-44bb-9678-bcf38da2c9e0" />
   <Project Path="AgentUtilRagReActSemantickernel/AuxiliadorEstoqueRagReActSemantickernel.csproj" Id="2f30543d-492c-4c8f-a453-80f13e62faf6" />
   <Project Path="FarmaceuticAgentRagSemantickernel/FarmaceuticAgentRagSemantickernel.csproj" />
-  <Project Path="FutbolRulesRAG/FutbolRulesRAG.csproj" DisplayName="FutbolRulesRag" />
-  <Project Path="FutbolRulesRAGSemanticKernel/FutbolRulesRAGSemanticKernel.csproj" DisplayName="FutbolRulesRagSemanticKernel" />
+  <Project Path="FutbolRulesRAG/FutbolRulesRAG.csproj" />
+  <Project Path="FutbolRulesRAGSemanticKernel/FutbolRulesRAGSemanticKernel.csproj" />
   <Project Path="RhAgentRagSemanticKernel/RhAgentRagSemanticKernel.csproj" Id="352f7289-8966-499f-a7b9-258b6da604c0" />
 </Solution>
