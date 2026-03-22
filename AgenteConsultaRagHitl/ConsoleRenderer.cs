@@ -1,69 +1,58 @@
 ﻿namespace AgenteConsultaRagHitl;
 
-/// <summary>
-/// Renderiza eventos do grafo no console em tempo real.
-/// Equivalente ao loop `for event in abot.graph.stream(...)` do notebook.
-/// </summary>
 public static class ConsoleRenderer
 {
     /// <summary>
-    /// Consome o stream de eventos e exibe no console nó a nó.
-    /// Retorna true se o grafo foi interrompido (HITL requerido).
+    /// Consome o stream e renderiza no console.
+    /// Sem spinner — os tokens do LLM já aparecem em tempo real via streaming.
     /// </summary>
     public static async Task<bool> RenderAsync(
         IAsyncEnumerable<GraphEvent> stream,
         string threadId)
     {
         var interrupted = false;
-        var currentNode = string.Empty;
         var printedHeader = false;
 
         await foreach (var evt in stream)
         {
             switch (evt.Type)
             {
-                // ── LLM streaming token a token ───────────────────────────────
                 case GraphEventType.LlmToken:
                     if (!printedHeader)
                     {
-                        PrintNodeHeader("llm", ConsoleColor.Cyan);
+                        Console.ForegroundColor = ConsoleColor.Cyan;
+                        Console.WriteLine("\n▶ [LLM]");
+                        Console.ResetColor();
                         printedHeader = true;
-                        currentNode = "llm";
                     }
                     Console.ForegroundColor = ConsoleColor.White;
                     Console.Write(evt.Content);
                     Console.ResetColor();
                     break;
 
-                // ── LLM decidiu chamar ferramenta ─────────────────────────────
                 case GraphEventType.LlmToolDecision:
                     Console.WriteLine();
                     Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"\n  ⚡ Agente quer chamar: {evt.Content}");
+                    Console.WriteLine($"\n  ⚡ {evt.Content}");
                     Console.ResetColor();
                     break;
 
-                // ── LLM respondeu diretamente (sem ferramenta) ────────────────
                 case GraphEventType.LlmDirectResponse:
-                    // conteúdo já foi impresso token a token
                     Console.WriteLine();
                     break;
 
-                // ── HITL: grafo pausado, aguardando aprovação humana ──────────
-                // Equivalente ao interrupt_before=["action"] do LangGraph
                 case GraphEventType.HumanInterruptRequired:
                     Console.WriteLine();
-                    PrintHitlBanner(evt.Content);
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"\n  🛑 GRAFO PAUSADO — {evt.Content}");
+                    Console.ResetColor();
                     interrupted = true;
                     break;
 
-                // ── Ferramenta executada ──────────────────────────────────────
                 case GraphEventType.ToolExecuting:
-                    PrintNodeHeader("action", ConsoleColor.Yellow);
-                    Console.ForegroundColor = ConsoleColor.DarkYellow;
-                    Console.WriteLine($"  ⚙️  {evt.Content}");
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"\n▶ [ACTION]\n  ⚙️  {evt.Content}");
                     Console.ResetColor();
-                    currentNode = "action";
                     printedHeader = false;
                     break;
 
@@ -71,16 +60,17 @@ public static class ConsoleRenderer
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"  ✅ {evt.Content}");
                     Console.ResetColor();
-                    // Novo header para a próxima saída do LLM
+                    // Reseta o header para o próximo nó LLM
                     printedHeader = false;
                     break;
 
-                // ── Fim ───────────────────────────────────────────────────────
                 case GraphEventType.GraphFinished:
-                    if (!interrupted)
+                    // Só exibe mensagem final quando vem do nó "llm" (resposta real terminada)
+                    // Ignora GraphFinished intermediário do nó "action"
+                    if (!interrupted && evt.NodeName == "llm")
                     {
                         Console.ForegroundColor = ConsoleColor.DarkGray;
-                        Console.WriteLine($"\n  ✅ [thread:{threadId}] Resposta persistida no SQLite.");
+                        Console.WriteLine($"\n  ✅ [thread:{threadId}] Persistido no SQLite.");
                         Console.ResetColor();
                     }
                     break;
@@ -90,12 +80,6 @@ public static class ConsoleRenderer
         return interrupted;
     }
 
-    // ── Prompt HITL ───────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Exibe o menu HITL e retorna a escolha do usuário.
-    /// Equivalente ao input("Você deseja executar esta ação? (sim/não)") do notebook.
-    /// </summary>
     public static HitlDecision PromptHitlDecision(string pendingAction)
     {
         Console.ForegroundColor = ConsoleColor.Yellow;
@@ -139,8 +123,6 @@ public static class ConsoleRenderer
         return Console.ReadLine()?.Trim() ?? string.Empty;
     }
 
-    // ── Helpers de exibição ───────────────────────────────────────────────────
-
     public static void PrintBanner()
     {
         Console.ForegroundColor = ConsoleColor.DarkYellow;
@@ -149,8 +131,6 @@ public static class ConsoleRenderer
         ╔══════════════════════════════════════════════════════════════╗
         ║   Human-in-the-Loop (HITL) — Semantic Kernel + Ollama       ║
         ║   RAG + SQLite Checkpoints + StateGraph                      ║
-        ║                                                              ║
-        ║   Equivalente: LangGraph + interrupt_before + update_state   ║
         ╚══════════════════════════════════════════════════════════════╝
         """);
         Console.ResetColor();
@@ -173,7 +153,7 @@ public static class ConsoleRenderer
     public static void PrintHistory(List<ChatMessage> messages, string threadId)
     {
         Console.ForegroundColor = ConsoleColor.DarkYellow;
-        Console.WriteLine($"\n  ── Histórico do thread '{threadId}' ({messages.Count} msgs) ──");
+        Console.WriteLine($"\n  ── Histórico '{threadId}' ({messages.Count} msgs) ──");
         Console.ResetColor();
 
         foreach (var msg in messages)
@@ -193,26 +173,11 @@ public static class ConsoleRenderer
                 _ => msg.Role.ToString()
             };
             var preview = msg.Content.Length > 120
-                ? msg.Content[..120] + "..."
-                : msg.Content;
+                ? msg.Content[..120] + "..." : msg.Content;
             Console.WriteLine($"  {prefix}: {preview}");
             Console.ResetColor();
         }
         Console.WriteLine();
-    }
-
-    private static void PrintNodeHeader(string node, ConsoleColor color)
-    {
-        Console.ForegroundColor = color;
-        Console.WriteLine($"\n▶ [{node.ToUpper()}]");
-        Console.ResetColor();
-    }
-
-    private static void PrintHitlBanner(string content)
-    {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"\n  🛑 GRAFO PAUSADO — {content}");
-        Console.ResetColor();
     }
 }
 

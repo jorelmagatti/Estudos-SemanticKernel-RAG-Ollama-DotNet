@@ -1,5 +1,6 @@
 ﻿namespace AgenteConsultaRagHitl;
 
+
 // ════════════════════════════════════════════════════════════════════════════
 //  StateGraph<TState> — mini-framework de grafo com suporte a HITL
 //
@@ -248,6 +249,7 @@ public class CompiledGraph<TState>
                 TState? finalState = default;
                 var tokenChannel = System.Threading.Channels.Channel.CreateUnbounded<string>();
 
+                // Executa o nó em background e envia tokens para o canal
                 var producer = Task.Run(async () =>
                 {
                     await foreach (var (partial, token) in streamHandler(state))
@@ -259,6 +261,8 @@ public class CompiledGraph<TState>
                     tokenChannel.Writer.Complete();
                 });
 
+                // Emite o NodeEvent com streaming — o consumidor lê os tokens
+                // em paralelo enquanto o produtor ainda gera
                 yield return new NodeEvent<TState>
                 {
                     NodeName = currentNode,
@@ -266,6 +270,7 @@ public class CompiledGraph<TState>
                     StreamTokens = ReadChannel(tokenChannel.Reader)
                 };
 
+                // Aguarda o produtor terminar para obter o estado final atualizado
                 await producer;
                 state = finalState!;
             }

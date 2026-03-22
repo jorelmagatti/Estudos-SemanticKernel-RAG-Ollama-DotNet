@@ -12,15 +12,10 @@ namespace AgenteConsultaRagHitl;
 public class WebSearchPlugin : IDisposable
 {
     private readonly TavilyClient _tavily;
-    private readonly HttpClient _http;
     private readonly string _apiKey;
 
-    public WebSearchPlugin(HttpClient http)
+    public WebSearchPlugin()
     {
-        _http = http;
-        var apiKey = Environment.GetEnvironmentVariable("TAVILY_API_KEY")
-                     ?? throw new InvalidOperationException(
-                         "TAVILY_API_KEY não encontrada. Defina a variável de ambiente.");
         _tavily = new TavilyClient();
         _apiKey = "";
     }

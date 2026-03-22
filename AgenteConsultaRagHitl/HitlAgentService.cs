@@ -2,28 +2,10 @@
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.Ollama;
 using System.Text;
-using System.Text.RegularExpressions;
+using System.Text.Json;
 
 namespace AgenteConsultaRagHitl;
 
-/// <summary>
-/// Agente HITL construído sobre o StateGraph.
-///
-/// Estrutura do grafo — espelho fiel do notebook Python:
-///
-///  Python:                              C#:
-///  ─────────────────────────────────    ──────────────────────────────
-///  graph.add_node("llm", call_gemini)   AddStreamingNode("llm", LlmNode)
-///  graph.add_node("action", take_action) AddNode("action", ActionNode)
-///  graph.add_conditional_edges(         AddConditionalEdge(
-///      "llm", exists_action,                "llm", ExistsAction,
-///      {True:"action", False:END})           {"tool":"action","end":END})
-///  graph.add_edge("action","llm")       AddEdge("action","llm")
-///  graph.set_entry_point("llm")         SetEntryPoint("llm")
-///  graph.compile(                       Compile(
-///      checkpointer=memory,                 interruptBefore:["action"])
-///      interrupt_before=["action"])
-/// </summary>
 public class HitlAgentService : IDisposable
 {
     private readonly Kernel _kernel;
@@ -32,6 +14,8 @@ public class HitlAgentService : IDisposable
     private readonly WebSearchPlugin _search;
     private readonly string _systemPrompt;
     private readonly CompiledGraph<AgentState> _graph;
+
+    public bool DiagnosticMode { get; set; } = true;
 
     public HitlAgentService(
         Kernel kernel,
@@ -45,7 +29,9 @@ public class HitlAgentService : IDisposable
         _search = search;
         _systemPrompt = systemPrompt;
 
-        // ── Monta o grafo — equivalente ao __init__ da classe Agent do Python ──
+        if (!_kernel.Plugins.Contains("WebSearch"))
+            _kernel.Plugins.AddFromObject(search, "WebSearch");
+
         _graph = new StateGraph<AgentState>()
             .AddStreamingNode("llm", LlmNodeAsync)
             .AddNode("action", ActionNodeAsync)
@@ -59,55 +45,40 @@ public class HitlAgentService : IDisposable
                 })
             .AddEdge("action", "llm")
             .SetEntryPoint("llm")
-            .Compile(interruptBefore: ["action"]); // ← interrupt_before=["action"]
+            .Compile(interruptBefore: ["action"]);
     }
 
     // ════════════════════════════════════════════════════════════════════════
     //  API pública
     // ════════════════════════════════════════════════════════════════════════
 
-    /// <summary>
-    /// Processa mensagem do usuário com streaming e suporte a HITL.
-    ///
-    /// Equivalente às células 10 e 12 do notebook:
-    ///   for event in abot.graph.stream({messages}, thread_config): ...
-    /// </summary>
     public async IAsyncEnumerable<GraphEvent> RunAsync(string threadId, string userMessage)
     {
-        // Persiste mensagem do usuário
         _repo.SaveMessage(threadId, MessageRole.User, userMessage);
-
         var state = BuildState(threadId);
 
         await foreach (var nodeEvent in _graph.StreamAsync(state))
-        {
-            await foreach (var evt in ProcessNodeEventAsync(nodeEvent, threadId))
+            await foreach (var evt in ProcessNodeEvent(nodeEvent, threadId))
                 yield return evt;
-        }
     }
 
     /// <summary>
-    /// Retoma o grafo após aprovação humana.
-    /// Equivalente a: abot.graph.stream(None, thread_config)
-    ///                                   ^^^^ None = retomar do checkpoint
+    /// Resume após aprovação HITL.
+    /// Reescrito para processar diretamente sem delegar para ProcessNodeEvent,
+    /// evitando o problema de yield break interrompendo a cadeia action→llm.
     /// </summary>
     public async IAsyncEnumerable<GraphEvent> ResumeAsync(string threadId)
     {
         var checkpoint = _repo.GetInterruptCheckpoint(threadId);
         if (checkpoint == null)
         {
-            yield return new GraphEvent
-            {
-                Type = GraphEventType.GraphFinished,
-                Content = "Nenhum checkpoint de interrupção encontrado."
-            };
+            yield return new GraphEvent { Type = GraphEventType.GraphFinished };
             yield break;
         }
 
         _repo.ClearCheckpoint(threadId);
 
         var state = BuildState(threadId);
-        // Restaura o tool call pendente do checkpoint
         state.PendingToolCalls.Add(new ToolCallRequest
         {
             Name = checkpoint.Value.ToolName,
@@ -115,104 +86,191 @@ public class HitlAgentService : IDisposable
             Id = checkpoint.Value.ToolId
         });
 
+        // ── Processa diretamente todos os nós após a retomada ─────────────────
+        // Não usa ProcessNodeEvent para evitar yield break cortando a cadeia
         await foreach (var nodeEvent in _graph.ResumeAsync(state, "action"))
         {
-            await foreach (var evt in ProcessNodeEventAsync(nodeEvent, threadId))
-                yield return evt;
+            if (nodeEvent.NodeName == "action")
+            {
+                // Nó action: executa a ferramenta (já foi feito pelo grafo)
+                // Só emite o evento de resultado
+                yield return new GraphEvent
+                {
+                    Type = GraphEventType.ToolResult,
+                    Content = "Busca concluída.",
+                    NodeName = "action"
+                };
+                // Continua para o próximo NodeEvent (llm) sem interromper
+                continue;
+            }
+
+            if (nodeEvent.NodeName == "llm" && nodeEvent.StreamTokens != null)
+            {
+                // Nó llm: streaming da resposta final
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine("\n▶ [LLM]");
+                Console.ResetColor();
+
+                // Log do histórico enviado ao LLM para diagnóstico
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine($"  [DIAG-RESUME] Mensagens no histórico: {nodeEvent.State.Messages.Count}");
+                foreach (var msg in nodeEvent.State.Messages)
+                {
+                    var preview = (msg.Content ?? "").Length > 80
+                        ? (msg.Content ?? "")[..80] + "..." : (msg.Content ?? "");
+                    Console.WriteLine($"  [DIAG-RESUME]   [{msg.Role}] {preview}");
+                }
+                Console.ResetColor();
+
+                var fullText = new StringBuilder();
+
+                await foreach (var token in nodeEvent.StreamTokens)
+                {
+                    fullText.Append(token);
+                    yield return new GraphEvent
+                    {
+                        Type = GraphEventType.LlmToken,
+                        Content = token,
+                        NodeName = "llm"
+                    };
+                }
+
+                var text = fullText.ToString();
+                var hasTc = nodeEvent.State.PendingToolCalls.Count > 0;
+
+                if (!hasTc && !string.IsNullOrWhiteSpace(text))
+                {
+                    // Persiste a resposta final
+                    _repo.SaveMessage(threadId, MessageRole.Assistant, text);
+
+                    yield return new GraphEvent
+                    {
+                        Type = GraphEventType.GraphFinished,
+                        NodeName = "llm"
+                    };
+                }
+                else if (hasTc)
+                {
+                    // O LLM quer fazer outra busca — nova interrupção HITL
+                    var tc = nodeEvent.State.PendingToolCalls[0];
+                    _repo.SaveInterruptCheckpoint(threadId, "action",
+                        tc.Name, tc.Query, tc.Id);
+
+                    yield return new GraphEvent
+                    {
+                        Type = GraphEventType.HumanInterruptRequired,
+                        Content = $"Ferramenta: {tc.Name} | Query: \"{tc.Query}\"",
+                        ToolCall = tc,
+                        NodeName = "action"
+                    };
+                }
+            }
         }
     }
 
-    /// <summary>
-    /// Injeta uma resposta manualmente no estado — equivalente ao:
-    ///   graph.update_state(thread_config, modified_state_values)
-    /// da célula 14 do notebook Python.
-    /// </summary>
-    public void InjectResponse(string threadId, string injectedContent)
+    public void InjectResponse(string threadId, string content)
     {
         _repo.ClearCheckpoint(threadId);
-        _repo.SaveMessage(threadId, MessageRole.Assistant,
-            $"[Resposta injetada manualmente]\n{injectedContent}");
-
+        _repo.SaveMessage(threadId, MessageRole.Assistant, $"[Injetado]\n{content}");
         Console.ForegroundColor = ConsoleColor.Magenta;
-        Console.WriteLine("\n  ✏️  [HITL] Resposta injetada no estado do grafo.");
-        Console.WriteLine($"  Conteúdo: {injectedContent}");
+        Console.WriteLine($"\n  ✏️  Resposta injetada: {content}");
         Console.ResetColor();
     }
 
-    public List<ChatMessage> GetHistory(string threadId) => _repo.GetMessages(threadId);
+    public List<ChatMessage> GetHistory(string tid) => _repo.GetMessages(tid);
     public List<string> ListThreads() => _repo.ListThreads();
-    public void ClearThread(string threadId) => _repo.ClearThread(threadId);
-
-    public bool HasPendingInterrupt(string threadId) =>
-        _repo.GetInterruptCheckpoint(threadId) != null;
-
+    public void ClearThread(string tid) => _repo.ClearThread(tid);
+    public bool HasPendingInterrupt(string tid) => _repo.GetInterruptCheckpoint(tid) != null;
     public void Dispose() => _search.Dispose();
 
     // ════════════════════════════════════════════════════════════════════════
     //  Nós do grafo
     // ════════════════════════════════════════════════════════════════════════
 
-    /// <summary>
-    /// Nó "llm" — equivalente ao call_gemini() do notebook Python.
-    /// Gera resposta com streaming e detecta tool calls no texto.
-    /// </summary>
     private async IAsyncEnumerable<(AgentState, string?)> LlmNodeAsync(AgentState state)
     {
-        var history = state.Messages;
-
-        // Injeta system prompt se ainda não estiver no histórico
-        if (history.Count == 0 || history[0].Role != AuthorRole.System)
-        {
+        if (state.Messages.Count == 0 || state.Messages[0].Role != AuthorRole.System)
             if (!string.IsNullOrWhiteSpace(_systemPrompt))
-                history.Insert(0, new Microsoft.SemanticKernel.ChatMessageContent(
-                    AuthorRole.System, _systemPrompt));
-        }
-
-        var fullResponse = new StringBuilder();
+                state.Messages.Insert(0,
+                    new ChatMessageContent(AuthorRole.System, _systemPrompt));
 
 #pragma warning disable SKEXP0070
-        var settings = new OllamaPromptExecutionSettings { Temperature = 0.7f };
+        var settings = new OllamaPromptExecutionSettings { Temperature = 0.3f };
 #pragma warning restore SKEXP0070
 
+        var fullText = new StringBuilder();
+        var functionCallAccum = new StringBuilder();
+
         await foreach (var chunk in _chat.GetStreamingChatMessageContentsAsync(
-            history, executionSettings: settings, kernel: _kernel))
+            state.Messages, executionSettings: settings, kernel: _kernel))
         {
-            if (!string.IsNullOrEmpty(chunk.Content))
-            {
-                fullResponse.Append(chunk.Content);
-                yield return (state, chunk.Content); // streaming token a token
-            }
+            if (chunk.Metadata != null)
+                foreach (var kv in chunk.Metadata)
+                    if (kv.Key.Contains("tool", StringComparison.OrdinalIgnoreCase) ||
+                        kv.Key.Contains("function", StringComparison.OrdinalIgnoreCase))
+                        functionCallAccum.Append(kv.Value?.ToString());
+
+            if (string.IsNullOrEmpty(chunk.Content)) continue;
+            fullText.Append(chunk.Content);
+            yield return (state, chunk.Content);
         }
 
-        var responseText = fullResponse.ToString();
+        var responseText = fullText.ToString().Trim();
 
-        // Detecta tool calls no texto gerado
-        var toolCalls = ExtractToolCalls(responseText);
+        if (DiagnosticMode)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"\n  [DIAG] Texto bruto ({responseText.Length} chars):");
+            Console.WriteLine($"  [DIAG] >>>{responseText[..Math.Min(300, responseText.Length)]}<<<");
+            Console.ResetColor();
+        }
 
-        state.PendingToolCalls = toolCalls;
-        state.Messages.AddAssistantMessage(responseText);
+        var searchQuery = DetectSearchIntent(responseText, functionCallAccum.ToString());
 
-        yield return (state, null); // estado final sem token
+        if (DiagnosticMode)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"  [DIAG] Query detectada: {searchQuery ?? "(nenhuma)"}");
+            Console.ResetColor();
+        }
+
+        state.PendingToolCalls = searchQuery != null
+            ? new List<ToolCallRequest>
+              { new() { Id = Guid.NewGuid().ToString(), Name = "search_web", Query = searchQuery } }
+            : new List<ToolCallRequest>();
+
+        if (state.PendingToolCalls.Count == 0)
+        {
+            _repo.SaveMessage(state.ThreadId, MessageRole.Assistant, responseText);
+            state.Messages.AddAssistantMessage(responseText);
+        }
+        else
+        {
+            state.Messages.AddAssistantMessage(responseText);
+        }
+
+        yield return (state, null);
     }
 
-    /// <summary>
-    /// Router — equivalente ao exists_action() do notebook Python.
-    /// Decide se vai para "action" (executa ferramenta) ou END (resposta direta).
-    /// </summary>
     private static string ExistsAction(AgentState state) =>
         state.PendingToolCalls.Count > 0 ? "tool" : "end";
 
-    /// <summary>
-    /// Nó "action" — equivalente ao take_action() do notebook Python.
-    /// Executa as ferramentas solicitadas pelo LLM.
-    /// </summary>
     private async Task<AgentState> ActionNodeAsync(AgentState state)
     {
         foreach (var tc in state.PendingToolCalls)
         {
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            Console.WriteLine($"\n  ⚙️  Buscando no Tavily: \"{tc.Query}\"");
+            Console.ResetColor();
+
             var result = await _search.SearchDirectAsync(tc.Query);
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"  ✅ Resultado recebido ({result.Length} chars)");
+            Console.ResetColor();
+
             _repo.SaveMessage(state.ThreadId, MessageRole.Tool, result, tc.Name);
-            state.Messages.AddUserMessage($"[Resultado da ferramenta {tc.Name}]\n{result}");
+            state.Messages.AddUserMessage($"[Resultado da busca: {tc.Query}]\n{result}");
         }
 
         state.PendingToolCalls.Clear();
@@ -220,44 +278,35 @@ public class HitlAgentService : IDisposable
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    //  Processamento de eventos do grafo
+    //  ProcessNodeEvent — usado apenas por RunAsync (primeira chamada)
     // ════════════════════════════════════════════════════════════════════════
 
-    private async IAsyncEnumerable<GraphEvent> ProcessNodeEventAsync(
-        NodeEvent<AgentState> nodeEvent,
-        string threadId)
+    private async IAsyncEnumerable<GraphEvent> ProcessNodeEvent(
+        NodeEvent<AgentState> nodeEvent, string threadId)
     {
-        // ── Interrupção HITL ──────────────────────────────────────────────────
-        // Equivalente ao interrupt_before=["action"] detectado pelo grafo
+        // Interrupção HITL antes do nó action
         if (nodeEvent.IsInterrupted)
         {
             var pending = nodeEvent.State.PendingToolCalls;
-
-            // Persiste checkpoint para permitir retomada
             if (pending.Count > 0)
             {
                 var tc = pending[0];
-                _repo.SaveInterruptCheckpoint(
-                    threadId, nodeEvent.NodeName,
+                _repo.SaveInterruptCheckpoint(threadId, nodeEvent.NodeName,
                     tc.Name, tc.Query, tc.Id);
+                yield return new GraphEvent
+                {
+                    Type = GraphEventType.HumanInterruptRequired,
+                    NodeName = nodeEvent.NodeName,
+                    Content = $"Ferramenta: {tc.Name} | Query: \"{tc.Query}\"",
+                    ToolCall = tc
+                };
             }
-
-            yield return new GraphEvent
-            {
-                Type = GraphEventType.HumanInterruptRequired,
-                NodeName = nodeEvent.NodeName,
-                Content = pending.Count > 0
-                    ? $"Ferramenta: {pending[0].Name} | Query: \"{pending[0].Query}\""
-                    : "Ação pendente requer aprovação"
-            };
             yield break;
         }
 
-        // ── Nó LLM: streaming de tokens ──────────────────────────────────────
         if (nodeEvent.NodeName == "llm" && nodeEvent.StreamTokens != null)
         {
             var fullText = new StringBuilder();
-
             await foreach (var token in nodeEvent.StreamTokens)
             {
                 fullText.Append(token);
@@ -269,116 +318,120 @@ public class HitlAgentService : IDisposable
                 };
             }
 
-            var text = fullText.ToString();
             var hasTc = nodeEvent.State.PendingToolCalls.Count > 0;
-
-            // Persiste resposta do assistente (se ainda não foi pelo nó)
-            if (!string.IsNullOrWhiteSpace(text) && !hasTc)
-            {
-                _repo.SaveMessage(threadId, MessageRole.Assistant, text);
-                yield return new GraphEvent
-                {
-                    Type = GraphEventType.LlmDirectResponse,
-                    Content = text,
-                    NodeName = "llm"
-                };
-            }
-            else if (hasTc)
+            if (hasTc)
             {
                 var tc = nodeEvent.State.PendingToolCalls[0];
                 yield return new GraphEvent
                 {
                     Type = GraphEventType.LlmToolDecision,
-                    Content = $"Quer chamar: {tc.Name}(\"{tc.Query}\")",
+                    Content = $"Quer buscar: \"{tc.Query}\"",
                     ToolCall = tc,
                     NodeName = "llm"
                 };
             }
-        }
-
-        // ── Nó Action: ferramenta executada ───────────────────────────────────
-        if (nodeEvent.NodeName == "action")
-        {
-            yield return new GraphEvent
+            else
             {
-                Type = GraphEventType.ToolResult,
-                Content = "Ferramenta executada com sucesso.",
-                NodeName = "action"
-            };
-        }
-
-        // ── Fim do grafo ──────────────────────────────────────────────────────
-        if (nodeEvent.State.FinalResponse != string.Empty || nodeEvent.NodeName == "llm")
-        {
-            yield return new GraphEvent
-            {
-                Type = GraphEventType.GraphFinished,
-                NodeName = nodeEvent.NodeName
-            };
+                yield return new GraphEvent
+                {
+                    Type = GraphEventType.LlmDirectResponse,
+                    Content = fullText.ToString(),
+                    NodeName = "llm"
+                };
+                yield return new GraphEvent
+                {
+                    Type = GraphEventType.GraphFinished,
+                    NodeName = "llm"
+                };
+            }
         }
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    //  Helpers
+    //  Detecção de intenção de busca
     // ════════════════════════════════════════════════════════════════════════
+
+    private string? DetectSearchIntent(string text, string functionCallMeta)
+    {
+        if (!string.IsNullOrEmpty(functionCallMeta))
+        {
+            var q = ExtractFromJson(functionCallMeta, "query", "q", "search");
+            if (q != null) { LogStrategy("metadados SK"); return q; }
+        }
+
+        var m = Regex(@"\{\s*""search""\s*:\s*""([^""]+)""", text);
+        if (m != null) { LogStrategy(@"{""search"":...}"); return m; }
+
+        var m2b = Regex(@"\{\s*""search""\s+""([^""]+)""", text);
+        if (m2b != null) { LogStrategy(@"{""search"" ...} sem dois pontos"); return m2b; }
+
+        var m2c = Regex(@"\{\s*search\s*:?\s*""([^""]+)""", text,
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (m2c != null) { LogStrategy("search sem aspas na chave"); return m2c; }
+
+        var m2 = Regex(@"""(?:query|tool_input|input)""\s*:\s*""([^""]+)""", text);
+        if (m2 != null) { LogStrategy(@"{""query"":...}"); return m2; }
+
+        var m3 = Regex(@"Action Input:\s*(.+?)(?:\n|$)", text);
+        if (m3 != null) { LogStrategy("ReAct Action Input"); return m3.Trim(); }
+
+        var m4 = Regex(@"<search>\s*(.+?)\s*</search>", text);
+        if (m4 != null) { LogStrategy("XML <search>"); return m4; }
+
+        var m5 = Regex(@"\[SEARCH:\s*(.+?)\]", text,
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (m5 != null) { LogStrategy("[SEARCH: ...]"); return m5; }
+
+        var m6 = Regex(
+            @"(?:vou buscar|vou pesquisar|deixa eu buscar|let me search|searching for|buscar por|pesquisar por)[:\s]+[""']?([^""'\n]{5,80})[""']?",
+            text, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (m6 != null) { LogStrategy("keyword intent"); return m6.Trim(' ', '.', '"', '\''); }
+
+        return null;
+    }
+
+    private static string? ExtractFromJson(string json, params string[] keys)
+    {
+        try
+        {
+            var doc = JsonDocument.Parse(json);
+            foreach (var key in keys)
+                if (doc.RootElement.TryGetProperty(key, out var val))
+                    return val.GetString();
+        }
+        catch { }
+        return null;
+    }
+
+    private static string? Regex(string pattern, string text,
+        System.Text.RegularExpressions.RegexOptions opts =
+        System.Text.RegularExpressions.RegexOptions.None)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(text, pattern, opts);
+        return m.Success ? m.Groups[1].Value : null;
+    }
+
+    private void LogStrategy(string strategy)
+    {
+        if (!DiagnosticMode) return;
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"  [DIAG] ✅ Estratégia: {strategy}");
+        Console.ResetColor();
+    }
 
     private AgentState BuildState(string threadId)
     {
-        var history = new Microsoft.SemanticKernel.ChatCompletion.ChatHistory();
-
+        var history = new ChatHistory();
         foreach (var msg in _repo.GetMessages(threadId))
         {
             switch (msg.Role)
             {
-                case MessageRole.User:
-                    history.AddUserMessage(msg.Content); break;
-                case MessageRole.Assistant:
-                    history.AddAssistantMessage(msg.Content); break;
+                case MessageRole.User: history.AddUserMessage(msg.Content); break;
+                case MessageRole.Assistant: history.AddAssistantMessage(msg.Content); break;
                 case MessageRole.Tool:
-                    history.AddUserMessage(
-                        $"[Resultado da ferramenta {msg.ToolName}]\n{msg.Content}"); break;
+                    history.AddUserMessage($"[Resultado da busca]\n{msg.Content}"); break;
             }
         }
-
         return new AgentState { ThreadId = threadId, Messages = history };
-    }
-
-    /// <summary>
-    /// Detecta tool calls no texto do LLM.
-    /// Modelos Ollama retornam chamadas de função como JSON ou como texto estruturado.
-    /// </summary>
-    private static List<ToolCallRequest> ExtractToolCalls(string text)
-    {
-        var calls = new List<ToolCallRequest>();
-
-        // Padrão: {"tool":"search_web","query":"..."}
-        var match = Regex.Match(text,
-            @"\{[""']?tool[""']?\s*:\s*[""']?(\w+)[""']?\s*,\s*[""']?(?:query|args)[""']?\s*:\s*[""']([^""']+)[""']",
-            RegexOptions.IgnoreCase);
-
-        if (match.Success)
-        {
-            calls.Add(new ToolCallRequest
-            {
-                Name = match.Groups[1].Value,
-                Query = match.Groups[2].Value
-            });
-        }
-
-        // Padrão alternativo: [search_web: "query"]  ou  search_web("query")
-        if (calls.Count == 0)
-        {
-            var m2 = Regex.Match(text,
-                @"search_web\s*[\(\[:\s]+[""']?([^""'\)\]]+)[""']?[\)\]]?",
-                RegexOptions.IgnoreCase);
-            if (m2.Success)
-                calls.Add(new ToolCallRequest
-                {
-                    Name = "search_web",
-                    Query = m2.Groups[1].Value.Trim()
-                });
-        }
-
-        return calls;
     }
 }
