@@ -1,5 +1,7 @@
 <Solution>
+  <Project Path="AgentConsultaRagPersistencia/AgentConsultaRagPersistencia.csproj" Id="ae28cdf7-e093-4436-a583-e097dec60b38" />
   <Project Path="AgenteConsultaRagBuscaAgentica/AgenteConsultaRagBuscaAgentica.csproj" Id="2af43314-8e6b-4bc8-ba03-582722e08a2e" />
+  <Project Path="AgenteConsultaRagHitl/AgenteConsultaRagHitl.csproj" Id="31159004-d304-4aca-b732-e91a97736098" />
   <Project Path="AgenteUtilidadesRagReActGrafo/AgenteUtilidadesRagReActGrafo.csproj" Id="4c9a08c3-cf58-44bb-9678-bcf38da2c9e0" />
   <Project Path="AgentUtilRagReActSemantickernel/AuxiliadorEstoqueRagReActSemantickernel.csproj" Id="2f30543d-492c-4c8f-a453-80f13e62faf6" />
   <Project Path="FarmaceuticAgentRagSemantickernel/FarmaceuticAgentRagSemantickernel.csproj" />
