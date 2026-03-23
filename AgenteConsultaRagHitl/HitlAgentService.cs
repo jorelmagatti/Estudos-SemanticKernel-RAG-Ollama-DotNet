@@ -14,7 +14,10 @@ public class HitlAgentService : IDisposable
     private readonly WebSearchPlugin _search;
     private readonly string _systemPrompt;
     private readonly CompiledGraph<AgentState> _graph;
-
+    private OllamaPromptExecutionSettings _settings = new ()
+    {
+        Temperature = 0.0f,
+    };
     public bool DiagnosticMode { get; set; } = true;
 
     public HitlAgentService(
@@ -23,6 +26,8 @@ public class HitlAgentService : IDisposable
         WebSearchPlugin search,
         string systemPrompt = "")
     {
+
+
         _kernel = kernel;
         _chat = kernel.GetRequiredService<IChatCompletionService>();
         _repo = repo;
@@ -194,15 +199,11 @@ public class HitlAgentService : IDisposable
                 state.Messages.Insert(0,
                     new ChatMessageContent(AuthorRole.System, _systemPrompt));
 
-#pragma warning disable SKEXP0070
-        var settings = new OllamaPromptExecutionSettings { Temperature = 0.3f };
-#pragma warning restore SKEXP0070
-
         var fullText = new StringBuilder();
         var functionCallAccum = new StringBuilder();
 
         await foreach (var chunk in _chat.GetStreamingChatMessageContentsAsync(
-            state.Messages, executionSettings: settings, kernel: _kernel))
+            state.Messages, executionSettings: _settings, kernel: _kernel))
         {
             if (chunk.Metadata != null)
                 foreach (var kv in chunk.Metadata)

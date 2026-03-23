@@ -17,7 +17,7 @@ public class WebSearchPlugin : IDisposable
     public WebSearchPlugin()
     {
         _tavily = new TavilyClient();
-        _apiKey = "";
+        _apiKey = "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";
     }
 
     [KernelFunction("search_web")]
