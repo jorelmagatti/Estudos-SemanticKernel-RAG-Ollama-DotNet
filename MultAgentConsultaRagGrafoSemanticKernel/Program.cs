@@ -8,8 +8,8 @@ ConsoleRenderer.PrintBanner();
 // ── Configuração ──────────────────────────────────────────────────────────────
 var config = new OllamaConfig
 {
-    BaseUrl = Environment.GetEnvironmentVariable("OLLAMA_URL") ?? "http://localhost:11434",
-    ChatModel = Environment.GetEnvironmentVariable("OLLAMA_MODEL") ?? "llama3.2"
+    BaseUrl =  "http://localhost:11434",
+    ChatModel = "llama3.2"
 };
 
 Console.ForegroundColor = ConsoleColor.DarkGray;

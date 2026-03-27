@@ -1,6 +1,8 @@
 ﻿using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.Ollama;
+using Polly;
+using Polly.Retry;
 
 namespace MultAgentConsultaRagGrafoSemanticKernel;
 
@@ -31,12 +33,16 @@ public class MultiAgentOrchestrator : IDisposable
     private readonly IChatCompletionService _chat;
     private readonly TavilySearchService _tavily;
     private readonly CompiledGraph<AgentState> _graph;
+    private AsyncRetryPolicy _retryPolicy;
 
     public MultiAgentOrchestrator(Kernel kernel, TavilySearchService tavily)
     {
         _kernel = kernel;
         _chat = kernel.GetRequiredService<IChatCompletionService>();
         _tavily = tavily;
+        _retryPolicy = Policy
+              .Handle<Exception>()
+              .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)));
 
         // ── Monta o grafo — equivalente às células 18-23 do notebook ──────────
         _graph = new StateGraph<AgentState>()
@@ -96,7 +102,10 @@ public class MultiAgentOrchestrator : IDisposable
         history.AddSystemMessage(AgentPrompts.Planner);
         history.AddUserMessage(state.Task);
 
-        var response = await _chat.GetChatMessageContentAsync(history, kernel: _kernel);
+        var response = await _retryPolicy.ExecuteAsync(async () =>
+        {
+            return await _chat.GetChatMessageContentAsync(history, kernel: _kernel);
+        });
 
         return state with { Plan = response.Content ?? string.Empty, CurrentNode = "planner" };
     }
@@ -114,7 +123,10 @@ public class MultiAgentOrchestrator : IDisposable
             AgentPrompts.ResearchPlan,
             $"Tarefa: {state.Task}\n\nPlano: {state.Plan}");
 
-        var newContent = await _tavily.SearchMultipleAsync(queries, maxResultsEach: 2);
+        var newContent = await _retryPolicy.ExecuteAsync(async () =>
+        {
+            return await _tavily.SearchMultipleAsync(queries, maxResultsEach: 2);
+        });
 
         var updatedContent = new List<string>(state.Content);
         updatedContent.AddRange(newContent);
@@ -145,7 +157,10 @@ public class MultiAgentOrchestrator : IDisposable
                 "Por favor, revise a redação incorporando as sugestões acima.");
         }
 
-        var response = await _chat.GetChatMessageContentAsync(history, kernel: _kernel);
+        var response = await _retryPolicy.ExecuteAsync(async () =>
+        {
+            return await _chat.GetChatMessageContentAsync(history, kernel: _kernel);
+        });
 
         return state with
         {
@@ -165,7 +180,10 @@ public class MultiAgentOrchestrator : IDisposable
         history.AddSystemMessage(AgentPrompts.Reflect);
         history.AddUserMessage(state.Draft);
 
-        var response = await _chat.GetChatMessageContentAsync(history, kernel: _kernel);
+        var response = await _retryPolicy.ExecuteAsync(async () =>
+        {
+            return await _chat.GetChatMessageContentAsync(history, kernel: _kernel);
+        });
 
         return state with { Critique = response.Content ?? string.Empty, CurrentNode = "reflect" };
     }
@@ -180,7 +198,10 @@ public class MultiAgentOrchestrator : IDisposable
             AgentPrompts.ResearchCritique,
             $"Crítica: {state.Critique}");
 
-        var newContent = await _tavily.SearchMultipleAsync(queries, maxResultsEach: 2);
+        var newContent = await _retryPolicy.ExecuteAsync(async () =>
+        {
+            return await _tavily.SearchMultipleAsync(queries, maxResultsEach: 2);
+        });
 
         var updatedContent = new List<string>(state.Content);
         updatedContent.AddRange(newContent);
