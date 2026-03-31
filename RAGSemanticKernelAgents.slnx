@@ -2,11 +2,14 @@
   <Project Path="AgentConsultaRagPersistencia/AgentConsultaRagPersistencia.csproj" Id="ae28cdf7-e093-4436-a583-e097dec60b38" />
   <Project Path="AgenteConsultaRagBuscaAgentica/AgenteConsultaRagBuscaAgentica.csproj" Id="2af43314-8e6b-4bc8-ba03-582722e08a2e" />
   <Project Path="AgenteConsultaRagHitl/AgenteConsultaRagHitl.csproj" Id="31159004-d304-4aca-b732-e91a97736098" />
+  <Project Path="AgenteEmailHitlMemorySematicKernel/AgenteEmailHitlMemorySematicKernel.csproj" Id="4081ba39-6acb-4e02-b1d7-ea981cd80894" />
+  <Project Path="AgentEmailRagMultAgentesSemanticKernel/AgentEmailRagMultAgentesSemanticKernel.csproj" Id="59422985-c362-4a16-99c5-d87eb368d185" />
   <Project Path="AgenteUtilidadesRagReActGrafo/AgenteUtilidadesRagReActGrafo.csproj" Id="4c9a08c3-cf58-44bb-9678-bcf38da2c9e0" />
   <Project Path="AgentUtilRagReActSemantickernel/AuxiliadorEstoqueRagReActSemantickernel.csproj" Id="2f30543d-492c-4c8f-a453-80f13e62faf6" />
   <Project Path="FarmaceuticAgentRagSemantickernel/FarmaceuticAgentRagSemantickernel.csproj" />
   <Project Path="FutbolRulesRAG/FutbolRulesRAG.csproj" />
   <Project Path="FutbolRulesRAGSemanticKernel/FutbolRulesRAGSemanticKernel.csproj" />
+  <Project Path="MeuMcpServer/MeuMcpServer.csproj" Id="87f6769a-88ee-4ecb-b739-2fafe60838f8" />
   <Project Path="MultAgentConsultaRagGrafoSemanticKernel/MultAgentRedacaoRagGrafoSemanticKernel.csproj" Id="cd259482-dfb5-4882-9758-c4a8dc18cf7f" />
   <Project Path="RhAgentRagSemanticKernel/RhAgentRagSemanticKernel.csproj" Id="352f7289-8966-499f-a7b9-258b6da604c0" />
 </Solution>
