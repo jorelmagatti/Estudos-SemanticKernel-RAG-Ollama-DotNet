@@ -4,6 +4,7 @@
   <Project Path="AgenteConsultaRagHitl/AgenteConsultaRagHitl.csproj" Id="31159004-d304-4aca-b732-e91a97736098" />
   <Project Path="AgenteEmailHitlMemorySematicKernel/AgenteEmailHitlMemorySematicKernel.csproj" Id="4081ba39-6acb-4e02-b1d7-ea981cd80894" />
   <Project Path="AgentEmailRagMultAgentesSemanticKernel/AgentEmailRagMultAgentesSemanticKernel.csproj" Id="59422985-c362-4a16-99c5-d87eb368d185" />
+  <Project Path="AgenteRedacaoBlazorServerSemanticKernelRag/AgenteRedacaoBlazorRagSemanticKernel.csproj" />
   <Project Path="AgenteUtilidadesRagReActGrafo/AgenteUtilidadesRagReActGrafo.csproj" Id="4c9a08c3-cf58-44bb-9678-bcf38da2c9e0" />
   <Project Path="AgentUtilRagReActSemantickernel/AuxiliadorEstoqueRagReActSemantickernel.csproj" Id="2f30543d-492c-4c8f-a453-80f13e62faf6" />
   <Project Path="FarmaceuticAgentRagSemantickernel/FarmaceuticAgentRagSemantickernel.csproj" />

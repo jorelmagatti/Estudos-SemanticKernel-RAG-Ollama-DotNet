@@ -1,0 +1,210 @@
+@page "/"
+@rendermode InteractiveServer
+@using EssayWriterBlazor.Models
+@using EssayWriterBlazor.Services
+@inject EssayWriterService EssayService
+
+<div class="container">
+    <!-- ── Painel de controle — equivalente ao gr.Row() do Gradio ── -->
+    <div class="control-panel card">
+        <h2>📝 Configuração</h2>
+
+        <div class="form-group">
+            <label>Tópico da Redação</label>
+            <input class="input-text"
+                   @bind="Topic"
+                   placeholder="Ex: A importância da inteligência artificial na educação"
+                   disabled="@IsRunning" />
+        </div>
+
+        <div class="form-group">
+            <label>Número máximo de revisões: <strong>@MaxRevisions</strong></label>
+            <input type="range" min="0" max="3" step="1"
+                   @bind="MaxRevisions"
+                   disabled="@IsRunning" />
+            <div class="range-labels">
+                <span>0</span><span>1</span><span>2</span><span>3</span>
+            </div>
+        </div>
+
+        <button class="btn-primary" @onclick="StartGeneration" disabled="@(IsRunning || string.IsNullOrWhiteSpace(Topic))">
+            @if (IsRunning)
+            {
+                <span class="spinner"></span>
+                <span>Gerando...</span>
+            }
+            else
+            {
+                <span>🚀 Gerar Redação</span>
+            }
+        </button>
+
+        @if (IsRunning)
+        {
+            <button class="btn-secondary" @onclick="Cancel">✖ Cancelar</button>
+        }
+    </div>
+
+    <!-- ── Pipeline de passos — equivalente ao output_textbox do Gradio ── -->
+    @if (Steps.Any())
+    {
+        <div class="pipeline">
+
+            @foreach (var step in Steps)
+            {
+                <div class="step-card @GetStepClass(step.Type)">
+                    <div class="step-header">
+                        <span class="step-icon">@GetStepIcon(step.Type)</span>
+                        <span class="step-title">@GetStepTitle(step.Type, step.Revision)</span>
+                    </div>
+                    <div class="step-body">
+                        @((MarkupString)FormatContent(step.Content))
+                    </div>
+                </div>
+            }
+
+            @if (IsRunning)
+            {
+                <div class="step-card step-loading">
+                    <div class="step-header">
+                        <span class="spinner-inline"></span>
+                        <span>@CurrentActivity</span>
+                    </div>
+                </div>
+            }
+
+            @if (IsComplete)
+            {
+                <div class="step-card step-complete">
+                    <div class="step-header">
+                        <span>✅</span>
+                        <span>Pipeline concluído!</span>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private string Topic       = string.Empty;
+    private int    MaxRevisions = 1;
+    private bool   IsRunning   = false;
+    private bool   IsComplete  = false;
+    private string CurrentActivity = "Inicializando...";
+
+    private List<PipelineStep> Steps = new();
+    private CancellationTokenSource? _cts;
+
+    /// <summary>
+    /// Inicia o pipeline — equivalente ao generate_button.click() do app.py.
+    /// O streaming é feito via IAsyncEnumerable + StateHasChanged(),
+    /// o que atualiza a UI em tempo real via SignalR (equivalente ao yield do Gradio).
+    /// </summary>
+    private async Task StartGeneration()
+    {
+        Steps.Clear();
+        IsRunning  = false;
+        IsComplete = false;
+        IsRunning  = true;
+        _cts       = new CancellationTokenSource();
+
+        try
+        {
+            var activityMap = new Dictionary<StepType, string>
+            {
+                [StepType.Plan]             = "✍️  Planejando a redação...",
+                [StepType.ResearchPlan]     = "🔍 Pesquisando informações iniciais...",
+                [StepType.Draft]            = "📄 Gerando rascunho...",
+                [StepType.Critique]         = "🧐 Analisando e criando crítica...",
+                [StepType.ResearchCritique] = "🔍 Pesquisando para revisão...",
+            };
+
+            await foreach (var step in EssayService.RunAsync(Topic, MaxRevisions)
+                               .WithCancellation(_cts.Token))
+            {
+                if (step.Type == StepType.Complete)
+                {
+                    IsComplete = true;
+                    break;
+                }
+
+                Steps.Add(step);
+
+                // Atualiza indicador de atividade para o próximo passo esperado
+                CurrentActivity = step.Type switch
+                {
+                    StepType.Plan             => activityMap[StepType.ResearchPlan],
+                    StepType.ResearchPlan     => activityMap[StepType.Draft],
+                    StepType.Draft            => "🧐 Avaliando o rascunho...",
+                    StepType.Critique         => activityMap[StepType.ResearchCritique],
+                    StepType.ResearchCritique => activityMap[StepType.Draft],
+                    _                         => "Processando..."
+                };
+
+                // Atualiza a UI em tempo real — equivalente ao yield full_output do Gradio
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) { /* cancelado pelo usuário */ }
+        catch (Exception ex)
+        {
+            Steps.Add(new PipelineStep
+            {
+                Type    = StepType.Complete,
+                Content = $"❌ Erro: {ex.Message}"
+            });
+        }
+        finally
+        {
+            IsRunning = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void Cancel()
+    {
+        _cts?.Cancel();
+        IsRunning = false;
+    }
+
+    // ── Helpers de renderização ───────────────────────────────────────────────
+
+    private static string GetStepIcon(StepType t) => t switch
+    {
+        StepType.Plan             => "📝",
+        StepType.ResearchPlan     => "🔍",
+        StepType.Draft            => "✍️",
+        StepType.Critique         => "🧐",
+        StepType.ResearchCritique => "🔎",
+        _                         => "✅"
+    };
+
+    private static string GetStepTitle(StepType t, int rev) => t switch
+    {
+        StepType.Plan             => "Plano Gerado",
+        StepType.ResearchPlan     => "Pesquisa Inicial (Tavily)",
+        StepType.Draft            => $"Rascunho — Revisão #{rev}",
+        StepType.Critique         => $"Crítica — Revisão #{rev}",
+        StepType.ResearchCritique => $"Pesquisa de Revisão #{rev} (Tavily)",
+        _                         => "Concluído"
+    };
+
+    private static string GetStepClass(StepType t) => t switch
+    {
+        StepType.Plan             => "step-plan",
+        StepType.ResearchPlan or
+        StepType.ResearchCritique => "step-research",
+        StepType.Draft            => "step-draft",
+        StepType.Critique         => "step-critique",
+        _                         => ""
+    };
+
+    private static string FormatContent(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return "<em>—</em>";
+        // Converte quebras de linha em <br> e preserva parágrafos
+        var escaped = System.Net.WebUtility.HtmlEncode(content);
+        return escaped.Replace("\n\n", "</p><p>").Replace("\n", "<br>");
+    }
+}
