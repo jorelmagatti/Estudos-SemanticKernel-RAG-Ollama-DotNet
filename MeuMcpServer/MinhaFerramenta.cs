@@ -7,8 +7,9 @@ public class ExemploTools
 {
     [McpServerTool]
     [ActionName("helloworld")]
-    [Description("Retorna uma saudação simples. Útil para testar se o MCP está funcionando.")]
-    public string HelloWorld(string nome = "mundo")
+    [Description("Retorna uma saudação pelo nome. Use quando o usuário disser o próprio nome ou pedir que o digite (ex.: \"meu nome é Ana\").")]
+    public string HelloWorld(
+        [Description("Primeiro nome extraído da mensagem do usuário (ex.: João).")] string nome = "mundo")
     {
         return $"Olá, {nome}! ✅ Servidor MCP rodando com .NET 10.";
     }

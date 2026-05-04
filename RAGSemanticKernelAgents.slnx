@@ -10,6 +10,7 @@
   <Project Path="FarmaceuticAgentRagSemantickernel/FarmaceuticAgentRagSemantickernel.csproj" />
   <Project Path="FutbolRulesRAG/FutbolRulesRAG.csproj" />
   <Project Path="FutbolRulesRAGSemanticKernel/FutbolRulesRAGSemanticKernel.csproj" />
+  <Project Path="MeuMCPCliente/MeuMCPCliente.csproj" Id="f37ae442-c902-4160-b810-a06c4478779c" />
   <Project Path="MeuMcpServer/MeuMcpServer.csproj" Id="87f6769a-88ee-4ecb-b739-2fafe60838f8" />
   <Project Path="MultAgentConsultaRagGrafoSemanticKernel/MultAgentRedacaoRagGrafoSemanticKernel.csproj" Id="cd259482-dfb5-4882-9758-c4a8dc18cf7f" />
   <Project Path="RhAgentRagSemanticKernel/RhAgentRagSemanticKernel.csproj" Id="352f7289-8966-499f-a7b9-258b6da604c0" />
